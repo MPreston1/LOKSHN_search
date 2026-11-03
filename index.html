@@ -72,8 +72,11 @@ const norm=s=>(s||'').normalize('NFD').replace(/[\u0591-\u05C7]/g,'').replace(/\
 function build(csv){
  const t=parseCSV(csv),head=t[0].map(h=>h.trim().toLowerCase()),idx={};
  for(const k in COLS){const [names,fb]=COLS[k];const i=head.findIndex(h=>names.includes(h));idx[k]=i>=0?i:fb}
+ // Sound columns run from the 'short [o]' header to the 'long [u]' header (E to O); letters are the fallback.
+ const s0=head.indexOf('short [o]'),s1=head.indexOf('long [u]'),[sa,sb]=s0>=0&&s1>=s0?[s0,s1]:[4,14];
  return t.slice(1).filter(r=>(r[idx.word]||'').trim()).map(r=>{
   const o={};for(const k in idx)o[k]=(r[idx[k]]||'').trim();
+  o.sounds=[];for(let i=sa;i<=sb;i++){const v=(r[i]||'').trim();if(v)o.sounds.push([(t[0][i]||'').trim(),v])}
   o.nw=norm(o.word);o.ng=norm(o.gloss);return o})}
 
 function setStatus(msg){$('count').textContent=msg}
@@ -116,7 +119,9 @@ function card(r){
  const row=(label,val,node)=>{dl.append(el('dt',null,label));const d=el('dd');
   if(node)d.append(node);else if(val)d.textContent=val;else{d.className='empty';d.textContent='—'}dl.append(d)};
  row('Gloss',r.gloss);row('Component',r.comp);row('Part of speech',r.pos);
- row('Sound',null,el('span','sound','Coming soon'));
+ const sn=(r.sounds||[]).length?el('div'):null;
+ if(sn)for(const [h,v] of r.sounds)sn.append(el('div',null,h?`${h} - ${v}`:v));
+ row('Sound',null,sn);
  row('Associated rule',r.rule);
  let fb=null;if(r.follows){const v=r.follows.toLowerCase();fb=el('span','badge '+(v.startsWith('yes')?'yes':v.startsWith('exception')?'exc':'na'),r.follows)}
  row('Follows rule?',null,fb);
