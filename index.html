@@ -72,11 +72,11 @@ const norm=s=>(s||'').normalize('NFD').replace(/[\u0591-\u05C7]/g,'').replace(/\
 function build(csv){
  const t=parseCSV(csv),head=t[0].map(h=>h.trim().toLowerCase()),idx={};
  for(const k in COLS){const [names,fb]=COLS[k];const i=head.findIndex(h=>names.includes(h));idx[k]=i>=0?i:fb}
- // Sound columns run from the 'short [o]' header to the 'long [u]' header (E to O); letters are the fallback.
- const s0=head.indexOf('short [o]'),s1=head.indexOf('long [u]'),[sa,sb]=s0>=0&&s1>=s0?[s0,s1]:[4,14];
+ // Sound columns (E, F, H, I, K, L, N, O) are found by header; those letters are the fallback.
+ const sNames=['short [o]','long [o]','short [e]','long [e]','short [i]','long [i]','short [u]','long [u]'],sFound=sNames.map(n=>head.indexOf(n)),sIdx=sFound.every(i=>i>=0)?sFound:[4,5,7,8,10,11,13,14];
  return t.slice(1).filter(r=>(r[idx.word]||'').trim()).map(r=>{
   const o={};for(const k in idx)o[k]=(r[idx[k]]||'').trim();
-  o.sounds=[];for(let i=sa;i<=sb;i++){const v=(r[i]||'').trim();if(v)o.sounds.push([(t[0][i]||'').trim(),v])}
+  o.sounds=[];for(const i of sIdx){const v=(r[i]||'').trim();if(v)o.sounds.push([(t[0][i]||'').trim(),v])}
   o.nw=norm(o.word);o.ng=norm(o.gloss);return o})}
 
 function setStatus(msg){$('count').textContent=msg}
