@@ -77,7 +77,7 @@ button.rulelink{background:none;border:0;padding:0;font:inherit;color:var(--acc)
 <script src="jszip.min.js"></script>
 <script>
 const SHEET_ID='1Vip_J4QjpMBorfov15jmbXouSXQMAmMXT0EbYsYfPkc',GID='671156978';
-const CSV_URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`;
+const CSV_URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&headers=1&gid=${GID}`;
 const CACHE_KEY='vowel-lookup-v1',PAGE=50;
 // Slide 2 tables and footnotes are read from this PowerPoint file (same folder as index.html).
 const PPTX_URL='guide.pptx',SLIDE_NO=2;
@@ -254,7 +254,7 @@ document.getElementById('tabs').addEventListener('click',e=>{const v=e.target.da
 
 
 // ---- Rules tab: popup for the associated rule ----
-const RULES_URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Rules`;
+const RULES_URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&headers=1&sheet=Rules`;
 let rules=[],rhead=['','',''],ruleExact=new Map(),ruleLoose=new Map();
 const clean=s=>(s||'').replace(/\s+/g,' ').trim(),noSlash=s=>clean((s||'').replace(/\//g,''));
 function buildRuleIdx(){ruleExact=new Map();ruleLoose=new Map();
