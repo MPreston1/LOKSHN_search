@@ -14,6 +14,7 @@
 :root{--bg:#eceff3;--card:#fff;--ink:#16202b;--mut:#5d6b79;--line:#d5dce4;--acc:#16324f;--ok:#1f7a4d;--okbg:#e0f2e8;--warn:#9a5200;--warnbg:#fdeccf;--na:#55606b;--nabg:#e6e9ed}
 @media(prefers-color-scheme:dark){:root{--bg:#10151b;--card:#192029;--ink:#e8edf2;--mut:#93a1af;--line:#2a3541;--acc:#9cc2ee;--ok:#7fd3a3;--okbg:#17372a;--warn:#f1b266;--warnbg:#3d2a10;--na:#a3afbb;--nabg:#242d37}}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
 main{max-width:680px;margin:0 auto;padding:16px}
@@ -34,6 +35,14 @@ dd{margin:0;overflow-wrap:anywhere}
 .sound{color:var(--mut);font-style:italic}
 #more{display:block;margin:4px auto 24px;padding:10px 20px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--acc)}
 .msg{text-align:center;color:var(--mut);padding:32px 8px}
+#tabs{display:flex;gap:6px;margin-top:10px}
+#tabs button{flex:1;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--mut);font-weight:600}
+#tabs button.on{background:var(--acc);color:var(--card);border-color:var(--acc)}
+.tw{overflow-x:auto;margin:0 0 16px}
+table{border-collapse:collapse;width:100%;background:var(--card)}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:start;vertical-align:top;white-space:pre-line}
+th{background:var(--nabg)}
+.note{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 10px;white-space:pre-line}
 </style>
 </head>
 <body>
@@ -41,14 +50,19 @@ dd{margin:0;overflow-wrap:anywhere}
 <header>
 <input id="q" type="search" dir="auto" lang="yi" placeholder="Search a Yiddish word…" autocomplete="off" autocapitalize="off" spellcheck="false" autofocus>
 <div id="status"><span id="count"></span><button id="refresh" type="button">Refresh data</button></div>
+<nav id="tabs"><button type="button" data-v="search" class="on">Search</button><button type="button" data-v="tables">Tables</button><button type="button" data-v="notes">Footnotes</button></nav>
 </header>
 <div id="results"></div>
 <button id="more" type="button" hidden>Show more</button>
+<div id="tables" hidden></div>
+<div id="notes" hidden></div>
 </main>
 <script>
 const SHEET_ID='1Vip_J4QjpMBorfov15jmbXouSXQMAmMXT0EbYsYfPkc',GID='671156978';
 const CSV_URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`;
 const CACHE_KEY='vowel-lookup-v1',PAGE=50;
+// Slides: read live through the Google Slides API (needs a free API key; see setup notes).
+const SLIDES_ID='1OzduSlGXEnK3ZCFV1P83UKeNwms5MjKgagxxe6kpKZY',SLIDE_OBJ='h105c52efcca4e630_2_0',API_KEY='AIzaSyBMMwJh6YWmhz81zVHE7a4a4830cJiph1U';
 // Columns are found by header name; letter positions (A,B,C,D,P,Q,R) are the fallback.
 const COLS={word:[['word'],0],gloss:[['gloss'],1],comp:[['component'],2],pos:[['part of speech'],3],rule:[['associated rule'],15],follows:[['follows rule?','follows rule'],16],notes:[['notes'],17]};
 const DB_NAME='vowel-lookup',STORE='kv';
@@ -128,10 +142,67 @@ function card(r){
  row('Notes',r.notes);
  c.append(dl);return c}
 
+
+// ---- Slide 2: tables and footnotes ----
+let slide=null,slideErr='';
+async function loadSlide(){
+ try{slide=(await idbGet('slide-v1'))||null}catch(e){}
+ if(API_KEY.startsWith('PASTE')){renderSlide();return}
+ if(slide)renderSlide();
+ try{
+  const f='slides(objectId,pageElements(transform,table,shape(placeholder,text)))';
+  const r=await fetch(`https://slides.googleapis.com/v1/presentations/${SLIDES_ID}?key=${API_KEY}&fields=${encodeURIComponent(f)}`);
+  if(!r.ok)throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  const sl=(j.slides||[]).find(x=>x.objectId===SLIDE_OBJ)||(j.slides||[])[1];
+  if(!sl)throw new Error('slide not found');
+  slide={at:Date.now(),els:sl.pageElements||[]};slideErr='';
+  try{await idbSet('slide-v1',slide)}catch(e){}
+ }catch(e){slideErr=String(e.message||e)}
+ renderSlide();
+}
+function fill(node,text){
+ for(const e of (text&&text.textElements)||[]){const r=e.textRun;if(!r)continue;const st=r.style||{};
+  const n=document.createElement(st.baselineOffset==='SUPERSCRIPT'?'sup':st.baselineOffset==='SUBSCRIPT'?'sub':'span');
+  n.textContent=r.content;if(st.bold)n.style.fontWeight='700';if(st.italic)n.style.fontStyle='italic';node.append(n)}
+ if(node.lastChild)node.lastChild.textContent=node.lastChild.textContent.replace(/\n+$/,'');
+ node.dir='auto'}
+const plain=t=>((t&&t.textElements)||[]).map(e=>(e.textRun&&e.textRun.content)||'').join('').trim();
+function tableEl(t){
+ const tb=el('table');
+ (t.tableRows||[]).forEach((row,ri)=>{const tr=el('tr');
+  for(const c of row.tableCells||[]){if(c.rowSpan===0||c.columnSpan===0)continue;
+   const cell=el(ri===0?'th':'td');if(c.columnSpan>1)cell.colSpan=c.columnSpan;if(c.rowSpan>1)cell.rowSpan=c.rowSpan;
+   fill(cell,c.text);tr.append(cell)}
+  tb.append(tr)});
+ const w=el('div','tw');w.append(tb);return w}
+function renderSlide(){
+ const T=$('tables'),N=$('notes');T.innerHTML='';N.innerHTML='';
+ const say=t=>{for(const P of [T,N])P.append(el('p','msg',t))};
+ if(API_KEY.startsWith('PASTE'))return say('To show the slide, add your Google API key to index.html (API_KEY).');
+ if(!slide)return say(slideErr?`Could not load the slide (${slideErr}).`:'Loading slide…');
+ const pos=e=>[(e.transform&&e.transform.translateY)||0,(e.transform&&e.transform.translateX)||0];
+ const els=[...slide.els].sort((a,b)=>pos(a)[0]-pos(b)[0]||pos(a)[1]-pos(b)[1]);
+ const tables=els.filter(e=>e.table);
+ const notes=els.filter(e=>e.shape&&plain(e.shape.text)&&!/TITLE|SUBTITLE|SLIDE_NUMBER/.test((e.shape.placeholder||{}).type||''));
+ if(!tables.length)T.append(el('p','msg','No tables found on the slide.'));
+ for(const e of tables)T.append(tableEl(e.table));
+ if(!notes.length)N.append(el('p','msg','No footnotes found on the slide.'));
+ for(const e of notes){const d=el('div','note');fill(d,e.shape.text);N.append(d)}
+ if(slideErr){for(const P of [T,N])P.append(el('p','msg',`Showing saved copy (${slideErr}).`))}
+}
+function view(v){
+ for(const b of document.querySelectorAll('#tabs button'))b.classList.toggle('on',b.dataset.v===v);
+ $('q').hidden=v!=='search';$('results').hidden=v!=='search';
+ $('more').hidden=v!=='search'||shown>=matches.length;
+ $('tables').hidden=v!=='tables';$('notes').hidden=v!=='notes';
+ window.scrollTo(0,0)}
+document.getElementById('tabs').addEventListener('click',e=>{const v=e.target.dataset&&e.target.dataset.v;if(v)view(v)});
+
 $('q').addEventListener('input',search);
 $('more').addEventListener('click',more);
 $('refresh').addEventListener('click',()=>load(true));
-load(false);
+load(false);loadSlide();
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 </script>
 </body>
