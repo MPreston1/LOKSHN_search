@@ -42,7 +42,11 @@ dd{margin:0;overflow-wrap:anywhere}
 table{border-collapse:collapse;width:100%;background:var(--card)}
 th,td{border:1px solid var(--line);padding:8px 10px;text-align:start;vertical-align:top;white-space:pre-line}
 th{background:var(--nabg)}
-.note{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 10px;white-space:pre-line}
+.note{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 10px}
+.cap{font-weight:700;font-size:14px;letter-spacing:.02em;margin:0 0 6px}
+.fn{display:flex;gap:8px;margin:0 0 10px}.fn:last-child{margin:0}
+.lb{flex:none;min-width:1.6em;text-align:end;color:var(--mut)}
+.tx{flex:1;min-width:0;white-space:pre-line;overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -57,12 +61,13 @@ th{background:var(--nabg)}
 <div id="tables" hidden></div>
 <div id="notes" hidden></div>
 </main>
+<script src="jszip.min.js"></script>
 <script>
 const SHEET_ID='1Vip_J4QjpMBorfov15jmbXouSXQMAmMXT0EbYsYfPkc',GID='671156978';
 const CSV_URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${GID}`;
 const CACHE_KEY='vowel-lookup-v1',PAGE=50;
-// Slides: read live through the Google Slides API (needs a free API key; see setup notes).
-const SLIDES_ID='1OzduSlGXEnK3ZCFV1P83UKeNwms5MjKgagxxe6kpKZY',SLIDE_OBJ='h105c52efcca4e630_2_0',API_KEY='AIzaSyBMMwJh6YWmhz81zVHE7a4a4830cJiph1U';
+// Slide 2 tables and footnotes are read from this PowerPoint file (same folder as index.html).
+const PPTX_URL='guide.pptx',SLIDE_NO=2;
 // Columns are found by header name; letter positions (A,B,C,D,P,Q,R) are the fallback.
 const COLS={word:[['word'],0],gloss:[['gloss'],1],comp:[['component'],2],pos:[['part of speech'],3],rule:[['associated rule'],15],follows:[['follows rule?','follows rule'],16],notes:[['notes'],17]};
 const DB_NAME='vowel-lookup',STORE='kv';
@@ -143,52 +148,85 @@ function card(r){
  c.append(dl);return c}
 
 
-// ---- Slide 2: tables and footnotes ----
+// ---- Slide 2: tables and footnotes, read from the .pptx ----
+const NS_A='http://schemas.openxmlformats.org/drawingml/2006/main',NS_P='http://schemas.openxmlformats.org/presentationml/2006/main',NS_R='http://schemas.openxmlformats.org/officeDocument/2006/relationships';
 let slide=null,slideErr='';
+const kids=(n,ns,name)=>[...n.children].filter(c=>c.localName===name&&c.namespaceURI===ns);
+const first=(n,ns,name)=>n.getElementsByTagNameNS(ns,name)[0];
+function parasOf(body){
+ return kids(body,NS_A,'p').map(p=>{
+  const pPr=kids(p,NS_A,'pPr')[0],an=pPr&&kids(pPr,NS_A,'buAutoNum')[0],r=[];
+  for(const c of p.children){if(c.namespaceURI!==NS_A)continue;
+   if(c.localName==='r'){const rp=kids(c,NS_A,'rPr')[0],t=kids(c,NS_A,'t')[0];
+    r.push({t:t?t.textContent:'',b:rp&&rp.getAttribute('b')==='1'?1:0,i:rp&&rp.getAttribute('i')==='1'?1:0,s:rp&&+rp.getAttribute('baseline')>0?1:0})}
+   else if(c.localName==='br')r.push({t:'\n'})}
+  return {l:+((pPr&&pPr.getAttribute('lvl'))||0),n:an?an.getAttribute('type'):'',st:an?+(an.getAttribute('startAt')||1):1,r}})}
+const joinParas=ps=>ps.flatMap((p,i)=>i?[{t:'\n'},...p.r]:p.r);
+const textOf=ps=>ps.map(p=>p.r.map(x=>x.t).join('')).join('\n').trim();
+function xfrm(el){const o=first(el,NS_A,'off'),e=first(el,NS_A,'ext');return o?{x:+o.getAttribute('x'),y:+o.getAttribute('y'),w:e?+e.getAttribute('cx'):0}:{x:0,y:0,w:0}}
+function parseSlideXml(xml){
+ const doc=new DOMParser().parseFromString(xml,'application/xml'),tree=first(doc,NS_P,'spTree'),shapes=[],frames=[];
+ for(const c of tree.children){if(c.namespaceURI!==NS_P)continue;
+  if(c.localName==='sp'){const tb=kids(c,NS_P,'txBody')[0];if(!tb)continue;const ps=parasOf(tb);shapes.push({...xfrm(c),ps,text:textOf(ps)})}
+  else if(c.localName==='graphicFrame'){const tbl=first(c,NS_A,'tbl');if(tbl)frames.push({...xfrm(c),tbl})}}
+ const tables=frames.sort((a,b)=>Math.floor(a.y/400000)-Math.floor(b.y/400000)||a.x-b.x).map(f=>{
+  const rows=kids(f.tbl,NS_A,'tr').map(tr=>kids(tr,NS_A,'tc').filter(tc=>tc.getAttribute('hMerge')!=='1'&&tc.getAttribute('vMerge')!=='1').map(tc=>{
+   const tb=kids(tc,NS_A,'txBody')[0],pr=kids(tc,NS_A,'tcPr')[0];
+   return {r:tb?joinParas(parasOf(tb)):[],cs:+tc.getAttribute('gridSpan')||1,rs:+tc.getAttribute('rowSpan')||1,h:pr&&kids(pr,NS_A,'solidFill').length?1:0}}));
+  // caption: the closest text box just above the table, roughly in line with its left edge
+  const cands=shapes.filter(s=>s.text&&Math.abs(s.x-f.x)<400000&&s.y<f.y&&f.y-s.y<700000).sort((a,b)=>(f.y-a.y)-(f.y-b.y));
+  return {cap:cands[0]?joinParas(cands[0].ps):[],rows}});
+ // footnotes: the text box with the most numbered paragraphs
+ const count=s=>s.ps.filter(p=>p.n).length,box=[...shapes].sort((a,b)=>count(b)-count(a))[0];
+ const notes=box&&count(box)?box.ps.filter(p=>p.r.map(x=>x.t).join('').trim()).map(p=>({l:p.l,n:p.n,st:p.st,r:p.r})):[];
+ return {tables,notes}}
+async function parsePptx(buf){
+ const zip=await JSZip.loadAsync(buf),read=async f=>new DOMParser().parseFromString(await zip.file(f).async('string'),'application/xml');
+ const pres=await read('ppt/presentation.xml'),rels=await read('ppt/_rels/presentation.xml.rels');
+ const id=pres.getElementsByTagNameNS(NS_P,'sldId')[SLIDE_NO-1];if(!id)throw new Error('slide '+SLIDE_NO+' not found');
+ const rid=id.getAttributeNS(NS_R,'id'),rel=[...rels.getElementsByTagName('Relationship')].find(r=>r.getAttribute('Id')===rid);
+ const tg=rel.getAttribute('Target'),path=tg.startsWith('/')?tg.slice(1):'ppt/'+tg;
+ return parseSlideXml(await zip.file(path).async('string'))}
 async function loadSlide(){
- try{slide=(await idbGet('slide-v1'))||null}catch(e){}
- if(API_KEY.startsWith('PASTE')){renderSlide();return}
+ try{slide=(await idbGet('slide-v3'))||null}catch(e){}
  if(slide)renderSlide();
  try{
-  const f='slides(objectId,pageElements(transform,table,shape(placeholder,text)))';
-  const r=await fetch(`https://slides.googleapis.com/v1/presentations/${SLIDES_ID}?key=${API_KEY}&fields=${encodeURIComponent(f)}`);
-  if(!r.ok)throw new Error('HTTP '+r.status);
-  const j=await r.json();
-  const sl=(j.slides||[]).find(x=>x.objectId===SLIDE_OBJ)||(j.slides||[])[1];
-  if(!sl)throw new Error('slide not found');
-  slide={at:Date.now(),els:sl.pageElements||[]};slideErr='';
-  try{await idbSet('slide-v1',slide)}catch(e){}
+  if(!window.JSZip)throw new Error('unzip library missing');
+  const r=await fetch(PPTX_URL,{cache:'no-cache'});if(!r.ok)throw new Error('HTTP '+r.status);
+  slide=await parsePptx(await r.arrayBuffer());slide.at=Date.now();slideErr='';
+  try{await idbSet('slide-v3',slide)}catch(e){}
  }catch(e){slideErr=String(e.message||e)}
  renderSlide();
 }
-function fill(node,text){
- for(const e of (text&&text.textElements)||[]){const r=e.textRun;if(!r)continue;const st=r.style||{};
-  const n=document.createElement(st.baselineOffset==='SUPERSCRIPT'?'sup':st.baselineOffset==='SUBSCRIPT'?'sub':'span');
-  n.textContent=r.content;if(st.bold)n.style.fontWeight='700';if(st.italic)n.style.fontStyle='italic';node.append(n)}
+function fill(node,runs){
+ for(const x of runs||[]){const n=document.createElement(x.s?'sup':'span');n.textContent=x.t;if(x.b)n.style.fontWeight='700';if(x.i)n.style.fontStyle='italic';node.append(n)}
  if(node.lastChild)node.lastChild.textContent=node.lastChild.textContent.replace(/\n+$/,'');
  node.dir='auto'}
-const plain=t=>((t&&t.textElements)||[]).map(e=>(e.textRun&&e.textRun.content)||'').join('').trim();
 function tableEl(t){
  const tb=el('table');
- (t.tableRows||[]).forEach((row,ri)=>{const tr=el('tr');
-  for(const c of row.tableCells||[]){if(c.rowSpan===0||c.columnSpan===0)continue;
-   const cell=el(ri===0?'th':'td');if(c.columnSpan>1)cell.colSpan=c.columnSpan;if(c.rowSpan>1)cell.rowSpan=c.rowSpan;
-   fill(cell,c.text);tr.append(cell)}
+ t.rows.forEach(row=>{const tr=el('tr');
+  for(const c of row){const cell=el(c.h?'th':'td');if(c.cs>1)cell.colSpan=c.cs;if(c.rs>1)cell.rowSpan=c.rs;fill(cell,c.r);tr.append(cell)}
   tb.append(tr)});
- const w=el('div','tw');w.append(tb);return w}
+ const box=el('div');
+ if(t.cap&&t.cap.length){const cp=el('p','cap');fill(cp,t.cap);box.append(cp)}
+ const w=el('div','tw');w.append(tb);box.append(w);return box}
+function label(type,v){
+ if(type==='alphaLcPeriod')return String.fromCharCode(96+v)+'.';
+ if(type==='alphaUcPeriod')return String.fromCharCode(64+v)+'.';
+ return v+'.'}
 function renderSlide(){
  const T=$('tables'),N=$('notes');T.innerHTML='';N.innerHTML='';
  const say=t=>{for(const P of [T,N])P.append(el('p','msg',t))};
- if(API_KEY.startsWith('PASTE'))return say('To show the slide, add your Google API key to index.html (API_KEY).');
  if(!slide)return say(slideErr?`Could not load the slide (${slideErr}).`:'Loading slide…');
- const pos=e=>[(e.transform&&e.transform.translateY)||0,(e.transform&&e.transform.translateX)||0];
- const els=[...slide.els].sort((a,b)=>pos(a)[0]-pos(b)[0]||pos(a)[1]-pos(b)[1]);
- const tables=els.filter(e=>e.table);
- const notes=els.filter(e=>e.shape&&plain(e.shape.text)&&!/TITLE|SUBTITLE|SLIDE_NUMBER/.test((e.shape.placeholder||{}).type||''));
- if(!tables.length)T.append(el('p','msg','No tables found on the slide.'));
- for(const e of tables)T.append(tableEl(e.table));
- if(!notes.length)N.append(el('p','msg','No footnotes found on the slide.'));
- for(const e of notes){const d=el('div','note');fill(d,e.shape.text);N.append(d)}
+ if(!slide.tables.length)T.append(el('p','msg','No tables found on the slide.'));
+ for(const t of slide.tables)T.append(tableEl(t));
+ if(!slide.notes.length)N.append(el('p','msg','No footnotes found on the slide.'));
+ else{const card=el('div','note'),ctr=[];
+  for(const n of slide.notes){
+   let lb='';if(n.n){ctr[n.l]=ctr[n.l]==null?n.st:ctr[n.l]+1;ctr.length=n.l+1;lb=label(n.n,ctr[n.l])}
+   const d=el('div','fn');d.style.paddingLeft=(n.l*1.6)+'em';
+   d.append(el('span','lb',lb));const tx=el('div','tx');fill(tx,n.r);d.append(tx);card.append(d)}
+  N.append(card)}
  if(slideErr){for(const P of [T,N])P.append(el('p','msg',`Showing saved copy (${slideErr}).`))}
 }
 function view(v){
