@@ -71,6 +71,7 @@ button.wbtn{flex:1;padding:12px;font:inherit;font-size:17px;font-weight:600;bord
 .wn{background:var(--nabg);border-radius:8px;padding:8px 10px;margin:0 0 12px;font-size:14px}
 .wo{font-size:22px;font-weight:700;margin:2px 0 14px;white-space:pre-line}
 .wlab{color:var(--mut);font-size:13px;margin:0 0 2px}
+.wo a,.rt a{color:var(--acc);text-decoration:underline}
 </style>
 </head>
 <body>
@@ -287,14 +288,22 @@ async function loadRules(){
  }catch(e){}
  if($('q').value.trim())search();
 }
+const PLACE_URL='https://yivo.org/yiddishland-topo';
+// Shows text in a node; for the Place names rule, the word "here" becomes a link.
+function setText(node,text,ruleName){
+ const m=/^place names$/i.test(ruleName||'')?/\bhere\b/i.exec(text):null;
+ if(!m){node.textContent=text;return}
+ node.textContent='';node.append(text.slice(0,m.index));
+ const a=document.createElement('a');a.href=PLACE_URL;a.target='_blank';a.rel='noopener';a.textContent=m[0];
+ node.append(a,text.slice(m.index+m[0].length))}
 function showRule(r){
  const ov=el('div','ov'),box=el('div','modal'),h=el('h3');h.dir='auto';h.textContent=r.b;
  const x=el('button','x','×');x.type='button';x.setAttribute('aria-label','Close');
  const esc=e=>{if(e.key==='Escape')close()},close=()=>{ov.remove();document.removeEventListener('keydown',esc)};
  x.onclick=close;ov.addEventListener('click',e=>{if(e.target===ov)close()});document.addEventListener('keydown',esc);
  box.append(x,h);
- for(const [lab,txt] of [[rhead[1],r.c],[rhead[2],r.d]]){if(!txt)continue;
-  const p=el('div','rf');if(lab)p.append(el('div','rl',lab));const t=el('div','rt');t.dir='auto';t.textContent=txt;p.append(t);box.append(p)}
+ for(const [lab,txt,isOut] of [[rhead[1],r.c,false],[rhead[2],r.d,true]]){if(!txt)continue;
+  const p=el('div','rf');if(lab)p.append(el('div','rl',lab));const t=el('div','rt');t.dir='auto';if(isOut)setText(t,txt,r.b);else t.textContent=txt;p.append(t);box.append(p)}
  ov.append(box);document.body.append(ov)}
 
 // ---- Guided questions: which rule applies? (offered when a search has no matches) ----
@@ -314,7 +323,7 @@ function wizSeq(branch){
  // A rule that says it is only marked when no later rule applies (Slavic) is asked last.
  const main=[],late=[];
  for(const it of non.items)(it.c&&/not covered by any of the subsequent rules/i.test(it.c)?late:main).push(it);
- return [...intro.items.filter(r=>!isLK(r)),...main,...late]}
+ return [...intro.items.filter(r=>!isLK(r)&&!/^unique cases$/i.test(r.b)),...main,...late]}
 function wizNext(branch,i,notes){
  const seq=wizSeq(branch);
  if(!seq)return {t:'msg',text:'The rules have not loaded yet. Open the app online once so they can be saved.'};
@@ -348,7 +357,7 @@ function renderWizard(){
   box.append(el('p','wlab',s.auto?'No other rule applied, so the rule is:':'The rule that applies is:'));
   box.append(el('p','wh',r.b));
   box.append(el('p','wlab',r.d?(rhead[2]||'Outcome'):(rhead[1]||'Description')));
-  const o=el('p','wo',r.d||r.c);o.dir='auto';box.append(o);
+  const o=el('p','wo');setText(o,r.d||r.c,r.b);o.dir='auto';box.append(o);
   if(/^derived$/i.test(r.b))box.append(el('p','wn','Next, find the vowel length of the root word: start over with the root.'));
   const row=el('div','wrow'),fb=el('button','wbtn','Show the full rule');fb.type='button';fb.onclick=()=>showRule(r);row.append(fb);box.append(row)}
  else if(s.t==='none')box.append(el('p','wq','None of the rules matched this word.'));
