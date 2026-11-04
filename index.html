@@ -48,6 +48,8 @@ th{background:var(--nabg)}
 .fn{display:flex;gap:8px;margin:0 0 10px}.fn:last-child{margin:0}
 .lb{flex:none;min-width:1.6em;text-align:end;color:var(--mut)}
 .tx{flex:1;min-width:0;white-space:pre-line;overflow-wrap:anywhere}
+#tools{display:flex;gap:20px;justify-content:center;padding:8px 0 28px}
+#tools button{background:none;border:0;color:var(--acc);font-size:13px;padding:4px}
 </style>
 </head>
 <body>
@@ -61,6 +63,7 @@ th{background:var(--nabg)}
 <button id="more" type="button" hidden>Show more</button>
 <div id="tables" hidden></div>
 <div id="notes" hidden></div>
+<footer id="tools"><button type="button" id="exp">Export data</button><button type="button" id="imp">Import data</button><input type="file" id="impfile" accept=".json,application/json" hidden></footer>
 </main>
 <script src="jszip.min.js"></script>
 <script>
@@ -75,7 +78,7 @@ const DB_NAME='vowel-lookup',STORE='kv';
 function idb(){return new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,1);r.onupgradeneeded=()=>r.result.createObjectStore(STORE);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 async function idbGet(k){const db=await idb();return new Promise((res,rej)=>{const r=db.transaction(STORE).objectStore(STORE).get(k);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)})}
 async function idbSet(k,v){const db=await idb();return new Promise((res,rej)=>{const t=db.transaction(STORE,'readwrite');t.objectStore(STORE).put(v,k);t.oncomplete=()=>res();t.onerror=()=>rej(t.error)})}
-let rows=[],matches=[],shown=0;
+let rows=[],matches=[],shown=0,sheetAt=0;
 const $=id=>document.getElementById(id);
 
 function parseCSV(t){const out=[];let r=[],f='',q=false;
@@ -102,14 +105,14 @@ function build(csv){
 function setStatus(msg){$('count').textContent=msg}
 
 async function load(force){
- if(!force){try{const c=await idbGet(CACHE_KEY);if(c&&c.rows){rows=c.rows;setStatus(`${rows.length} entries (saved ${new Date(c.at).toLocaleDateString()})`);search()}}catch(e){}}
+ if(!force){try{const c=await idbGet(CACHE_KEY);if(c&&c.rows){rows=c.rows;sheetAt=c.at;setStatus(`${rows.length} entries (saved ${new Date(c.at).toLocaleDateString()})`);search()}}catch(e){}}
  try{
   setStatus(rows.length?'Updating…':'Loading data…');
   const res=await fetch(CSV_URL);if(!res.ok)throw new Error(res.status);
   const text=await res.text();
   if(text.trim().startsWith('<'))throw new Error('Sheet is not public');
-  rows=build(text);
-  try{await idbSet(CACHE_KEY,{at:Date.now(),rows})}catch(e){}
+  rows=build(text);sheetAt=Date.now();
+  try{await idbSet(CACHE_KEY,{at:sheetAt,rows})}catch(e){}
   setStatus(`${rows.length} entries · up to date`);search();
  }catch(e){
   setStatus(rows.length?`Offline — using saved data (${rows.length} entries)`:'Could not load the spreadsheet. Check that it is shared as “Anyone with the link can view”.');
@@ -237,6 +240,32 @@ function view(v){
  $('tables').hidden=v!=='tables';$('notes').hidden=v!=='notes';
  window.scrollTo(0,0)}
 document.getElementById('tabs').addEventListener('click',e=>{const v=e.target.dataset&&e.target.dataset.v;if(v)view(v)});
+
+
+// ---- Export / import of the saved data ----
+async function exportData(){
+ if(!rows.length&&!slide){alert('There is no saved data to export yet.');return}
+ const data={app:'lokshn-search',version:1,exported:new Date().toISOString(),sheet:rows.length?{at:sheetAt,rows}:null,slide};
+ const name=`lokshn-search-${data.exported.slice(0,10)}.json`,file=new File([JSON.stringify(data)],name,{type:'application/json'});
+ try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file]});return}}
+ catch(e){if(e.name==='AbortError')return}
+ const a=document.createElement('a');a.href=URL.createObjectURL(file);a.download=name;document.body.append(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(a.href),10000)}
+async function importData(file){
+ try{
+  const j=JSON.parse(await file.text());
+  const okSheet=!!(j.sheet&&Array.isArray(j.sheet.rows)&&j.sheet.rows.every(r=>r&&typeof r.word==='string'));
+  const okSlide=!!(j.slide&&Array.isArray(j.slide.tables)&&Array.isArray(j.slide.notes));
+  if(!okSheet&&!okSlide)throw new Error('this is not a LOKSHN Search export');
+  const what=[okSheet?`${j.sheet.rows.length} entries`:'',okSlide?'the slide tables and footnotes':''].filter(Boolean).join(' and ');
+  if(!confirm(`Replace the saved data with ${what} from this file?`))return;
+  if(okSheet){rows=j.sheet.rows.map(r=>({...r,nw:norm(r.word),ng:norm(r.gloss||'')}));sheetAt=j.sheet.at||Date.now();
+   await idbSet(CACHE_KEY,{at:sheetAt,rows});setStatus(`${rows.length} entries (imported)`);search()}
+  if(okSlide){slide=j.slide;slideErr='';await idbSet('slide-v3',slide);renderSlide()}
+ }catch(err){alert('Could not import: '+(err.message||err))}}
+$('exp').addEventListener('click',exportData);
+$('imp').addEventListener('click',()=>$('impfile').click());
+$('impfile').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f)importData(f)});
 
 $('q').addEventListener('input',search);
 $('more').addEventListener('click',more);
