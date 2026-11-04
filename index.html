@@ -51,6 +51,13 @@ th{background:var(--nabg)}
 #tools{display:flex;gap:20px;justify-content:center;padding:8px 0 28px}
 #tools button{background:none;border:0;color:var(--acc);font-size:13px;padding:4px}
 h1{font-size:19px;line-height:1.3;margin:6px 0 0;color:var(--acc)}
+button.rulelink{background:none;border:0;padding:0;font:inherit;color:var(--acc);text-decoration:underline;text-align:start;cursor:pointer}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;z-index:10;padding:env(safe-area-inset-top) 8px env(safe-area-inset-bottom)}
+@media(min-width:600px){.ov{align-items:center}}
+.modal{position:relative;background:var(--card);color:var(--ink);border-radius:14px;max-width:640px;width:100%;max-height:85vh;overflow:auto;padding:18px 18px 20px;margin-bottom:8px}
+.modal h3{margin:0 38px 12px 0;font-size:18px;line-height:1.3;overflow-wrap:anywhere}
+.x{position:absolute;top:8px;right:8px;width:34px;height:34px;border:0;border-radius:50%;background:var(--nabg);color:var(--ink);font-size:22px;line-height:1;padding:0}
+.rf{margin:0 0 12px}.rl{color:var(--mut);font-size:13px;margin-bottom:2px}.rt{white-space:pre-line;overflow-wrap:anywhere}
 </style>
 </head>
 <body>
@@ -147,7 +154,9 @@ function card(r){
  const sn=(r.sounds||[]).length?el('div'):null;
  if(sn)for(const [h,v] of r.sounds)sn.append(el('div',null,h?`${h} - ${v}`:v));
  row('Sound',null,sn);
- row('Associated rule',r.rule);
+ const rl=r.rule?findRule(r.rule):null;
+ if(rl){const rb=el('button','rulelink',r.rule);rb.type='button';rb.dir='auto';rb.onclick=()=>showRule(rl);row('Associated rule',null,rb)}
+ else row('Associated rule',r.rule);
  let fb=null;if(r.follows){const v=r.follows.toLowerCase();fb=el('span','badge '+(v.startsWith('yes')?'yes':v.startsWith('exception')?'exc':'na'),r.follows)}
  row('Follows rule?',null,fb);
  row('Notes',r.notes);
@@ -244,10 +253,40 @@ function view(v){
 document.getElementById('tabs').addEventListener('click',e=>{const v=e.target.dataset&&e.target.dataset.v;if(v)view(v)});
 
 
+// ---- Rules tab: popup for the associated rule ----
+const RULES_URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Rules`;
+let rules=[],rhead=['','',''],ruleExact=new Map(),ruleLoose=new Map();
+const clean=s=>(s||'').replace(/\s+/g,' ').trim(),noSlash=s=>clean((s||'').replace(/\//g,''));
+function buildRuleIdx(){ruleExact=new Map();ruleLoose=new Map();
+ for(const r of rules){const a=clean(r.b),b=noSlash(r.b);if(!ruleExact.has(a))ruleExact.set(a,r);if(!ruleLoose.has(b))ruleLoose.set(b,r)}}
+// Exact match first; otherwise compare with the slashes removed ("/o/ ↔ NHG /a/" finds "o ↔ NHG a").
+function findRule(txt){const k=clean(txt);if(!k)return null;return ruleExact.get(k)||ruleLoose.get(noSlash(k))||null}
+async function loadRules(){
+ try{const c=await idbGet('rules-v1');if(c&&c.rules){rules=c.rules;rhead=c.head||rhead;buildRuleIdx()}}catch(e){}
+ try{
+  const res=await fetch(RULES_URL);if(!res.ok)throw new Error(res.status);
+  const text=await res.text();if(text.trim().startsWith('<'))throw new Error('Sheet is not public');
+  const t=parseCSV(text);rhead=[1,2,3].map(i=>((t[0]||[])[i]||'').trim());
+  rules=t.slice(1).filter(r=>(r[1]||'').trim()).map(r=>({b:r[1].trim(),c:(r[2]||'').trim(),d:(r[3]||'').trim()}));
+  buildRuleIdx();
+  try{await idbSet('rules-v1',{at:Date.now(),head:rhead,rules})}catch(e){}
+ }catch(e){}
+ if($('q').value.trim())search();
+}
+function showRule(r){
+ const ov=el('div','ov'),box=el('div','modal'),h=el('h3');h.dir='auto';h.textContent=r.b;
+ const x=el('button','x','×');x.type='button';x.setAttribute('aria-label','Close');
+ const esc=e=>{if(e.key==='Escape')close()},close=()=>{ov.remove();document.removeEventListener('keydown',esc)};
+ x.onclick=close;ov.addEventListener('click',e=>{if(e.target===ov)close()});document.addEventListener('keydown',esc);
+ box.append(x,h);
+ for(const [lab,txt] of [[rhead[1],r.c],[rhead[2],r.d]]){if(!txt)continue;
+  const p=el('div','rf');if(lab)p.append(el('div','rl',lab));const t=el('div','rt');t.dir='auto';t.textContent=txt;p.append(t);box.append(p)}
+ ov.append(box);document.body.append(ov)}
+
 // ---- Export / import of the saved data ----
 async function exportData(){
  if(!rows.length&&!slide){alert('There is no saved data to export yet.');return}
- const data={app:'lokshn-search',version:1,exported:new Date().toISOString(),sheet:rows.length?{at:sheetAt,rows}:null,slide};
+ const data={app:'lokshn-search',version:1,exported:new Date().toISOString(),sheet:rows.length?{at:sheetAt,rows}:null,slide,rules:rules.length?{head:rhead,rules}:null};
  const name=`lokshn-search-${data.exported.slice(0,10)}.json`,file=new File([JSON.stringify(data)],name,{type:'application/json'});
  try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file]});return}}
  catch(e){if(e.name==='AbortError')return}
@@ -258,12 +297,14 @@ async function importData(file){
   const j=JSON.parse(await file.text());
   const okSheet=!!(j.sheet&&Array.isArray(j.sheet.rows)&&j.sheet.rows.every(r=>r&&typeof r.word==='string'));
   const okSlide=!!(j.slide&&Array.isArray(j.slide.tables)&&Array.isArray(j.slide.notes));
-  if(!okSheet&&!okSlide)throw new Error('this is not a LOKSHN Search export');
-  const what=[okSheet?`${j.sheet.rows.length} entries`:'',okSlide?'the slide tables and footnotes':''].filter(Boolean).join(' and ');
+  const okRules=!!(j.rules&&Array.isArray(j.rules.rules));
+  if(!okSheet&&!okSlide&&!okRules)throw new Error('this is not a LOKSHN Search export');
+  const what=[okSheet?`${j.sheet.rows.length} entries`:'',okSlide?'the slide tables and footnotes':'',okRules?`${j.rules.rules.length} rules`:''].filter(Boolean).join(' and ');
   if(!confirm(`Replace the saved data with ${what} from this file?`))return;
   if(okSheet){rows=j.sheet.rows.map(r=>({...r,nw:norm(r.word),ng:norm(r.gloss||'')}));sheetAt=j.sheet.at||Date.now();
    await idbSet(CACHE_KEY,{at:sheetAt,rows});setStatus(`${rows.length} entries (imported)`);search()}
   if(okSlide){slide=j.slide;slideErr='';await idbSet('slide-v3',slide);renderSlide()}
+  if(okRules){rules=j.rules.rules;rhead=j.rules.head||rhead;buildRuleIdx();await idbSet('rules-v1',{at:Date.now(),head:rhead,rules});search()}
  }catch(err){alert('Could not import: '+(err.message||err))}}
 $('exp').addEventListener('click',exportData);
 $('imp').addEventListener('click',()=>$('impfile').click());
@@ -272,7 +313,7 @@ $('impfile').addEventListener('change',e=>{const f=e.target.files[0];e.target.va
 $('q').addEventListener('input',search);
 $('more').addEventListener('click',more);
 $('refresh').addEventListener('click',()=>load(true));
-load(false);loadSlide();
+load(false);loadSlide();loadRules();
 if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 </script>
 </body>
