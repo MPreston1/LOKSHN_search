@@ -108,7 +108,7 @@ function render(){
  if(!word)return say('Type a word to begin.');
  const verb=$('verb').checked,src=$('src').value;
  let w=word,rootNote='';
- if(verb){const r=w.replace(/ען$|ן$/,'');if(r!==w){w=r;rootNote=`Analyzing the root: ${w}`}}
+ if(verb){const r1=w.replace(/ען$/,''),r=(r1!==w&&RuleFinder.analyze(r1).nuclei.length)?r1:w.replace(/ן$/,'');if(r!==w){w=r;rootNote=`Analyzing the root: ${w}`}}
  const a=RuleFinder.analyze(w);
  if(!a.nuclei.length)return say('No vowels were found in this word.');
  const guess=RuleFinder.guessStress(a),stress=st.stress!=null&&st.stress<a.nuclei.length?st.stress:guess;
