@@ -50,41 +50,53 @@
   }
 
   // Display syllables: each holds one vowel; consonants between vowels are split V.CV or VC.CV.
-  function analyze(word) {
+  function analyze(word, boundary) {
+    boundary = boundary || 0;
     const U = units(word), nuclei = [];
     U.forEach((u, i) => { if (u.t === 'V') nuclei.push(i); });
     const cuts = [0];
     for (let k = 0; k + 1 < nuclei.length; k++) {
       const a = nuclei[k], b = nuclei[k + 1], c = b - a - 1;
-      cuts.push(c <= 1 ? a + 1 : a + 2);
+      cuts.push(boundary > a && boundary <= b ? boundary : (c <= 1 ? a + 1 : a + 2));
     }
     cuts.push(U.length);
     const syllables = [];
     for (let k = 0; k + 1 < cuts.length; k++) syllables.push(U.slice(cuts[k], cuts[k + 1]).map(u => u.s).join(''));
-    return { units: U, nuclei, syllables, plain: word.normalize('NFD').replace(/[\u0591-\u05C7\u05BE\-\s()]/g, '') };
+    return { units: U, nuclei, syllables, boundary, plain: word.normalize('NFD').replace(/[\u0591-\u05C7\u05BE\-\s()]/g, '') };
   }
 
-  // Which syllable is stressed (index into nuclei)? Default: second to last, after unstressed prefixes.
-  const PREFIXES = ['באר'.replace('ר', ''), 'גע', 'פאר', 'צע', 'דער', 'ענט', 'אנט']; // plain spellings
+  // Unstressed prefixes, written as sounds: a vowel is its sound name, a consonant is its letter.
+  // The vowel mark matters: באַ- and פֿאַר- (pasekh) are prefixes, but באָבע and פֿאָרהאַנג (komets) are not.
+  const PREFIXES = [['ג', 'e'], ['ב', 'a'], ['פ', 'a', 'ר'], ['צ', 'e'], ['ד', 'e', 'ר'], ['e', 'נ', 'ט'], ['a', 'נ', 'ט']];
+  const soundKey = u => (u.t === 'V' ? u.v : u.c);
+  // Which syllable is stressed (index into nuclei)? Default: second to last, after an unstressed prefix.
   function guessStress(a, opts) {
     const n = a.nuclei.length;
-    if (n <= 1) return 0;
-    let pfx = 0;
-    if (!(opts && opts.noPrefix)) for (const p of PREFIXES) if (a.plain.startsWith(p) && n - 1 >= 2) { pfx = 1; break; }
-    const r = n - pfx;
-    return pfx + Math.max(r - 2, 0);
+    if (n <= 1 || a.boundary) return 0;           // one syllable, or a stressed prefix marked by the user
+    let pfx = 0, off = 0, again = !(opts && opts.noPrefix);
+    while (again) {                                // prefixes can stack: פֿאַר-גע-
+      again = false;
+      for (const p of PREFIXES) {
+        if (n - pfx - 1 >= 1 && p.every((k, i) => a.units[off + i] && soundKey(a.units[off + i]) === k)) { pfx++; off += p.length; again = true; break; }
+      }
+    }
+    let idx = pfx + Math.max(n - pfx - 2, 0);
+    while (a.syllables[idx] === 'גע' && idx + 1 < n) idx++;   // a syllable גע is never stressed
+    return idx;
   }
 
   // Evaluate every spelling-based rule for the stressed vowel. Each result says whether the rule matches and why.
   const VL = { e: 'ע', o: 'אָ', a: 'אַ', i: 'י', u: 'ו', ey: 'ײ', ay: 'ײַ', oy: 'ױ' };
   function context(a, p) {
     const U = a.units, v = U[p].v; let j = p + 1; const cons = [];
-    while (j < U.length && U[j].t === 'C') { cons.push(U[j].c); j++; }
-    let nextV = j < U.length;
-    if (!nextV && cons.length >= 2 && ['נ', 'ל', 'מ'].includes(cons[cons.length - 1])) { cons.pop(); nextV = true; }   // final syllabic consonant
+    const lim = a.boundary && p < a.boundary ? a.boundary : U.length;   // a root boundary after a stressed prefix
+    while (j < lim && U[j].t === 'C') { cons.push(U[j].c); j++; }
+    let nextV = j < lim;
+    const prefixEnd = !nextV && lim < U.length;
+    if (!nextV && lim === U.length && cons.length >= 2 && ['נ', 'ל', 'מ'].includes(cons[cons.length - 1])) { cons.pop(); nextV = true; }   // final syllabic consonant
     // (t)sh and (d)zh count as two consonants when counting clusters.
     const nC = cons.reduce((n, c) => n + (c === 'טש' || c === 'דזש' ? 2 : 1), 0);
-    return { v, cons, nextV, atEnd: !nextV, first: cons[0], last: cons[cons.length - 1], nC, eo: v === 'e' || v === 'o' };
+    return { v, cons, nextV, prefixEnd, atEnd: !nextV, first: cons[0], last: cons[cons.length - 1], nC, eo: v === 'e' || v === 'o' };
   }
   function evaluate(a, stressIdx, opts) {
     const p = a.nuclei[stressIdx];
@@ -92,7 +104,7 @@
     const c = context(a, p), germanic = !!(opts && opts.germanic), slavic = !!(opts && opts.slavic);
     const vl = VL[c.v] || c.v, f = c.first || 'nothing', L = [];
     const add = (name, m, why) => L.push({ name, match: !!m, why });
-    const endTxt = c.atEnd ? 'the end of the word' : 'a vowel';
+    const endTxt = c.atEnd ? (c.prefixEnd ? 'the end of the prefix (a root boundary)' : 'the end of the word') : 'a vowel';
     add('V + {V, #}', c.cons.length === 0,
       c.cons.length === 0 ? `no consonant after the vowel; next comes ${endTxt}` : `the consonant ${f} follows the vowel`);
     add('{e, o} + {s, kh}', c.eo && ['ס', 'כ', 'ח'].includes(c.first),

@@ -22,6 +22,9 @@ label{display:flex;gap:6px;align-items:center}
 .chips{display:flex;flex-wrap:wrap;gap:8px;direction:rtl;margin:6px 0 10px}
 .chip{font:600 28px/1.2 "Frank Ruhl Libre","David","Times New Roman",serif;padding:6px 14px;border:2px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);cursor:pointer}
 .chip.on{background:var(--acc);border-color:var(--acc);color:var(--card)}
+.pre{display:flex;flex-wrap:wrap;gap:6px;direction:rtl;margin:6px 0 4px}
+.ltr{font:600 22px/1.2 "Frank Ruhl Libre","David","Times New Roman",serif;padding:3px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);cursor:pointer}
+.ltr.on{background:var(--warnbg);border-color:var(--warn);color:var(--warn)}
 .ctx{background:var(--nabg);border-radius:8px;padding:8px 10px;font-size:14px;margin:0 0 10px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:0 0 10px}
 .res .name{font-weight:700;font-size:17px}.res .out{font-size:24px;font-weight:700;margin:2px 0 8px;white-space:pre-line}
@@ -66,7 +69,7 @@ const strip=s=>(s||'').normalize('NFD').replace(/[\u0591-\u05C7\u05BE\-\s()]/g,'
 function el(tag,cls,txt){const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e}
 function idbGet(k){return new Promise((res,rej)=>{const r=indexedDB.open('vowel-lookup',1);r.onupgradeneeded=()=>r.result.createObjectStore('kv');
  r.onsuccess=()=>{try{const g=r.result.transaction('kv').objectStore('kv').get(k);g.onsuccess=()=>res(g.result);g.onerror=()=>rej(g.error)}catch(e){res(null)}};r.onerror=()=>rej(r.error)})}
-let rules=[],rhead=['','',''],rows=[],st={stress:null,manual:{}};
+let rules=[],rhead=['','',''],rows=[],st={stress:null,boundary:null,manual:{}};
 
 // Rules in sheet order for a non-loshn-koydesh word (same order as the main app's question helper).
 const isLK=r=>/^loshn-koydesh$/i.test(r.b||'');
@@ -109,10 +112,17 @@ function render(){
  const verb=$('verb').checked,src=$('src').value;
  let w=word,rootNote='';
  if(verb){const r1=w.replace(/ען$/,''),r=(r1!==w&&RuleFinder.analyze(r1).nuclei.length)?r1:w.replace(/ן$/,'');if(r!==w){w=r;rootNote=`Analyzing the root: ${w}`}}
- const a=RuleFinder.analyze(w);
- if(!a.nuclei.length)return say('No vowels were found in this word.');
+ const a0=RuleFinder.analyze(w);
+ if(!a0.nuclei.length)return say('No vowels were found in this word.');
+ const bnd=st.boundary>0&&st.boundary<a0.units.length?st.boundary:0,a=bnd?RuleFinder.analyze(w,bnd):a0;
  const guess=RuleFinder.guessStress(a),stress=st.stress!=null&&st.stress<a.nuclei.length?st.stress:guess;
  if(rootNote)out.append(el('p','mut',rootNote));
+ // 0. stressed prefix: its end counts as a root boundary
+ if(a0.units.length>1){
+  out.append(el('p','mut',bnd?`Stressed prefix: ${a0.units.slice(0,bnd).map(u=>u.s).join('')}. Its end counts as a root boundary. Tap its last letter again to clear.`:'If the word starts with a stressed prefix, tap the last letter of the prefix. Its end then counts as a root boundary.'));
+  const pre=el('div','pre');
+  a0.units.forEach((u,i)=>{const b=el('button','ltr'+(i<bnd?' on':''),u.s);b.type='button';b.lang='yi';b.onclick=()=>{st.boundary=st.boundary===i+1?null:i+1;st.stress=null;render()};pre.append(b)});
+  out.append(pre)}
  // 1. syllables
  out.append(el('p','mut',a.nuclei.length>1?`Syllables: tap the stressed one. ${st.stress!=null&&st.stress<a.nuclei.length?'Stress set by you.':'Stress guessed by the app.'}`:'One syllable.'));
  const chips=el('div','chips');
@@ -166,9 +176,9 @@ function render(){
   row.append(el('div','why',s.kind==='manual'?(s.match?'You marked Yes.':'Cannot be judged from spelling; assumed No.'):s.why));
   out.append(row)});
 }
-$('w').addEventListener('input',()=>{st.stress=null;render()});
+$('w').addEventListener('input',()=>{st.stress=null;st.boundary=null;render()});
 $('src').addEventListener('change',()=>{st.stress=null;render()});
-$('verb').addEventListener('change',()=>{st.stress=null;render()});
+$('verb').addEventListener('change',()=>{st.stress=null;st.boundary=null;render()});
 (async()=>{
  try{const c=await idbGet('rules-v1');if(c&&c.rules){rules=c.rules;rhead=c.head||rhead}}catch(e){}
  try{const d=await idbGet('vowel-lookup-v1');if(d&&d.rows)rows=d.rows}catch(e){}
