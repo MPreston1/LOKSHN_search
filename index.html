@@ -21,6 +21,12 @@ main{max-width:680px;margin:0 auto;padding:16px}
 header{position:sticky;top:0;background:var(--bg);padding:12px 0 10px;z-index:2}
 input{width:100%;font:inherit;font-size:20px;padding:14px 16px;border:2px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink)}
 input:focus{outline:none;border-color:var(--acc)}
+#qrow{display:flex;gap:8px;align-items:stretch}
+#qrow input{flex:1;min-width:0;width:auto}
+#yid-toggle{flex:none;min-width:48px;border:2px solid var(--line);border-radius:10px;background:var(--card);color:var(--mut);font-size:20px;font-weight:600;padding:0 12px}
+#yid-toggle.on{background:var(--acc);border-color:var(--acc);color:var(--card)}
+#q.yid-on{border-color:var(--acc)}
+#helpbtn{display:block;width:100%;margin-top:8px;padding:9px 12px;border:1px solid var(--acc);border-radius:10px;background:var(--card);color:var(--acc);font-size:15px;font-weight:600}
 #status{display:flex;justify-content:space-between;gap:8px;color:var(--mut);font-size:13px;margin-top:8px;min-height:20px}
 button{font:inherit;cursor:pointer}
 #refresh{background:none;border:0;color:var(--acc);font-size:13px;padding:0}
@@ -48,7 +54,8 @@ th{background:var(--nabg)}
 .fn{display:flex;gap:8px;margin:0 0 10px}.fn:last-child{margin:0}
 .lb{flex:none;min-width:1.6em;text-align:end;color:var(--mut)}
 .tx{flex:1;min-width:0;white-space:pre-line;overflow-wrap:anywhere}
-#tools{display:flex;gap:20px;justify-content:center;padding:8px 0 28px}
+#tools{display:flex;gap:20px;justify-content:center;padding:8px 0 0}
+#credit{color:var(--mut);font-size:12px;text-align:center;padding:8px 0 28px}
 #tools button{background:none;border:0;color:var(--acc);font-size:13px;padding:4px}
 h1{font-size:19px;line-height:1.3;margin:6px 0 0;color:var(--acc)}
 button.rulelink{background:none;border:0;padding:0;font:inherit;color:var(--acc);text-decoration:underline;text-align:start;cursor:pointer}
@@ -78,7 +85,9 @@ button.wbtn{flex:1;padding:12px;font:inherit;font-size:17px;font-weight:600;bord
 <main>
 <h1>Searchable Companion Database for the L.O.K.SH.N Guide to Vowel Length</h1>
 <header>
-<input id="q" type="search" dir="auto" lang="yi" placeholder="Search a Yiddish word…" autocomplete="off" autocapitalize="off" spellcheck="false" autofocus>
+<div id="qrow"><input id="q" type="search" dir="auto" lang="yi" placeholder="Search a Yiddish word…" autocomplete="off" autocapitalize="off" spellcheck="false" autofocus>
+<button type="button" id="yid-toggle" title="Toggle Yiddish typing (or type ~)" aria-pressed="false" aria-label="Toggle Yiddish typing">A</button></div>
+<button type="button" id="helpbtn">Help me find the rule</button>
 <div id="status"><span id="count"></span><button id="refresh" type="button">Refresh data</button></div>
 <nav id="tabs"><button type="button" data-v="search" class="on">Search</button><button type="button" data-v="tables">Tables</button><button type="button" data-v="notes">Footnotes</button></nav>
 </header>
@@ -87,6 +96,7 @@ button.wbtn{flex:1;padding:12px;font:inherit;font-size:17px;font-weight:600;bord
 <div id="tables" hidden></div>
 <div id="notes" hidden></div>
 <footer id="tools"><button type="button" id="exp">Export data</button><button type="button" id="imp">Import data</button><input type="file" id="impfile" accept=".json,application/json" hidden></footer>
+<p id="credit">Based on the “L.O.K.SH.N Guide to Vowel Length,” compiled by Arele Schaechter Viswanath.</p>
 </main>
 <script src="jszip.min.js"></script>
 <script>
@@ -149,7 +159,7 @@ function search(){
  m.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
  matches=m.map(x=>x[2]);shown=0;$('results').innerHTML='';
  if(!matches.length){const R=$('results');R.innerHTML='';R.append(el('p','msg','No matches.'));
-  const hb=el('button','wbtn','Help me find the rule');hb.id='help';hb.type='button';hb.onclick=()=>startWizard(raw);R.append(hb);$('more').hidden=true;return}
+  $('more').hidden=true;return}
  more();
 }
 function more(){
@@ -261,7 +271,7 @@ function renderSlide(){
 }
 function view(v){
  for(const b of document.querySelectorAll('#tabs button'))b.classList.toggle('on',b.dataset.v===v);
- $('q').hidden=v!=='search';$('results').hidden=v!=='search';
+ $('qrow').hidden=v!=='search';$('helpbtn').hidden=v!=='search';$('results').hidden=v!=='search';
  $('more').hidden=v!=='search'||shown>=matches.length;
  $('tables').hidden=v!=='tables';$('notes').hidden=v!=='notes';
  window.scrollTo(0,0)}
@@ -334,11 +344,11 @@ function wizNext(branch,i,notes){
   return {t:'rule',branch,i,notes,rule:it}}
  return {t:'none',notes}}
 let wz=null;
-function startWizard(word){wz={word,hist:[],germanic:null,cur:{t:'q0'}};renderWizard()}
+function startWizard(word){$('more').hidden=true;wz={word,hist:[],germanic:null,cur:{t:'q0'}};renderWizard()}
 function wizGo(next){wz.hist.push(wz.cur);wz.cur=next;renderWizard()}
 function renderWizard(){
  const R=$('results'),s=wz.cur,notes=s.notes||[];R.innerHTML='';
- const box=el('div','wiz'),w=el('p','wmut','Searching for: '+wz.word);w.dir='auto';box.append(w);
+ const box=el('div','wiz');if(wz.word){const w=el('p','wmut','Searching for: '+wz.word);w.dir='auto';box.append(w)}
  for(const n of notes)box.append(el('p','wn',n));
  const yn=(onYes,onNo)=>{const row=el('div','wrow');
   for(const [l,f] of [['Yes',onYes],['No',onNo]]){const b=el('button','wbtn',l);b.type='button';b.onclick=f;row.append(b)}
@@ -369,6 +379,30 @@ function renderWizard(){
  const bs=el('button',null,'Back to search');bs.type='button';bs.onclick=search;nav.append(bs);
  box.append(nav);R.append(box);window.scrollTo(0,0)}
 
+// ---- Yiddish typing mode (Yiddish Klal layout): type ~ to toggle, ~~ for a literal ~
+// Maps physical keys (event.code) to [plain, shift, option, shift+option]; other keys type normally.
+const YK_MAP={KeyA:['אַ','א'],KeyS:['ס','ת'],KeyD:['ד','דזש'],KeyF:['פֿ','ף'],KeyG:['ג','דזש'],KeyH:['ה','ח'],KeyJ:['ײ','דזש'],KeyK:['ק','כּ'],KeyL:['ל','ל'],KeyQ:['ק','כּ'],KeyW:['ש','שׂ'],KeyE:['ע','ײ'],KeyR:['ר','טש'],KeyT:['ט','תּ','תֿ'],KeyY:['ײַ','ױ'],KeyU:['ו','וּ'],KeyI:['י','יִ'],KeyO:['אָ','ױ'],KeyP:['פּ','פ'],KeyZ:['ז','זש'],KeyX:['כ','ך','כֿ'],KeyC:['צ','ץ'],KeyV:['װ','בֿ'],KeyB:['ב','בּ'],KeyN:['נ','ן'],KeyM:['מ','ם'],
+ Minus:['־','-','–','—'],Equal:['=','+','⸗'],BracketLeft:['[','„','{','’'],BracketRight:[']','“','}','”'],Backslash:['\\','|','׳','״'],Quote:["'",'"','′','″'],Semicolon:[';',':','…']};
+let yiddishOn=false,lastTilde=false;
+try{yiddishOn=localStorage.getItem('lokshnYiddishTyping')==='1'}catch(e){}
+function updateYiddishUI(){const b=$('yid-toggle');b.textContent=yiddishOn?'א':'A';b.classList.toggle('on',yiddishOn);b.setAttribute('aria-pressed',yiddishOn);$('q').classList.toggle('yid-on',yiddishOn)}
+function setYiddish(on){yiddishOn=on;try{localStorage.setItem('lokshnYiddishTyping',on?'1':'0')}catch(e){}updateYiddishUI()}
+function insertAtCursor(inp,text){let ok=false;try{ok=document.execCommand('insertText',false,text)}catch(e){}
+ if(!ok){const a=inp.selectionStart==null?inp.value.length:inp.selectionStart,b=inp.selectionEnd==null?a:inp.selectionEnd;inp.setRangeText(text,a,b,'end');inp.dispatchEvent(new Event('input',{bubbles:true}))}}
+$('q').addEventListener('keydown',e=>{
+ if(e.isComposing||e.ctrlKey||e.metaKey)return;
+ if(e.key==='~'){e.preventDefault();if(e.repeat)return;
+  if(lastTilde){lastTilde=false;setYiddish(!yiddishOn);insertAtCursor(e.target,'~')}else{lastTilde=true;setYiddish(!yiddishOn)}return}
+ if(['Shift','Alt','Control','Meta','CapsLock'].includes(e.key))return;
+ lastTilde=false;
+ if(!yiddishOn||e.getModifierState('CapsLock'))return;
+ const m=YK_MAP[e.code];if(!m)return;
+ const out=e.altKey?(e.shiftKey?m[3]:m[2]):(e.shiftKey?m[1]:m[0]);
+ if(!out)return;e.preventDefault();insertAtCursor(e.target,out)});
+$('yid-toggle').addEventListener('mousedown',e=>e.preventDefault());
+$('yid-toggle').addEventListener('click',()=>{setYiddish(!yiddishOn);$('q').focus()});
+updateYiddishUI();
+
 // ---- Export / import of the saved data ----
 async function exportData(){
  if(!rows.length&&!slide){alert('There is no saved data to export yet.');return}
@@ -397,6 +431,7 @@ $('imp').addEventListener('click',()=>$('impfile').click());
 $('impfile').addEventListener('change',e=>{const f=e.target.files[0];e.target.value='';if(f)importData(f)});
 
 $('q').addEventListener('input',search);
+$('helpbtn').addEventListener('click',()=>{view('search');startWizard($('q').value.trim())});
 $('more').addEventListener('click',more);
 $('refresh').addEventListener('click',()=>load(true));
 load(false);loadSlide();loadRules();
